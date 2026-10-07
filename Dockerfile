@@ -18,6 +18,8 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 COPY backend/ .
 
+COPY ca.pem /etc/ssl/certs/aiven-ca.pem
+
 RUN mkdir -p bootstrap/cache \
     && chmod -R 775 bootstrap/cache storage
 
