@@ -96,7 +96,7 @@ const orderChats = chatHistory.filter(
   const loadTickets = async () => {
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/api/tickets"
+        "https://ai-support-bot.wokku.app/api/tickets"
       );
 
       const data = await response.json();
@@ -116,7 +116,7 @@ const orderChats = chatHistory.filter(
 ) => {
   try {
     const response = await fetch(
-      `http://127.0.0.1:8000/api/tickets/${ticketId}`,
+      `https://ai-support-bot.wokku.app/api/tickets/${ticketId}`,
       {
         method: "PUT",
         headers: {
@@ -147,7 +147,7 @@ const orderChats = chatHistory.filter(
 const loadChatHistory = async () => {
   try {
     const response = await fetch(
-      "http://127.0.0.1:8000/api/chat-history"
+      "https://ai-support-bot.wokku.app/api/chat-history"
     );
 
     const data = await response.json();
@@ -194,7 +194,7 @@ useEffect(() => {
 
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/api/classify",
+         "https://ai-support-bot.wokku.app/api/classify",
         {
           method: "POST",
 
