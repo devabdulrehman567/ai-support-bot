@@ -36,18 +36,32 @@ Route::post('/gemini-test', function (Request $request) {
         'https://generativelanguage.googleapis.com/v1beta/interactions',
         [
             'model' => 'gemini-flash-lite-latest',
-            'input' => $request->input('message', 'Hello, are you working?'),
+            'input' => $request->input('message'),
         ]
     );
 
+    $data = $response->json();
+
+    $answer = null;
+
+    if (isset($data['steps'])) {
+
+        foreach ($data['steps'] as $step) {
+
+            if (($step['type'] ?? null) === 'model_output') {
+
+                $answer = $step['content'][0]['text'] ?? null;
+
+                break;
+            }
+        }
+    }
+
     return response()->json([
-        'google_status' => $response->status(),
-        'google_success' => $response->successful(),
-        'google_response' => $response->json(),
+        'success' => $response->successful(),
+        'message' => $answer,
     ], $response->status());
 });
-
-
 // =============================================================
 // AI CUSTOMER SUPPORT CLASSIFICATION
 // =============================================================
