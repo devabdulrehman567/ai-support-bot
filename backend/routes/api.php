@@ -115,7 +115,12 @@ If the category is FAQ, also provide a helpful customer-facing answer.
 
 Return valid JSON only.',
 
-            'input' => $message,
+            'input' => [
+    [
+        'type' => 'text',
+        'text' => $message,
+    ],
+],
 
             'response_format' => [
                 'type' => 'text',
