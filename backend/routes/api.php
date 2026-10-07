@@ -80,6 +80,7 @@ Route::post('/classify', function (Request $request) {
         'Content-Type' => 'application/json',
     ])->post(
         'https://generativelanguage.googleapis.com/v1beta/interactions',
+        
         [
             'model' => 'gemini-flash-lite-latest',
 
@@ -178,9 +179,19 @@ Return valid JSON only.',
     // GEMINI RESPONSE
     // =========================================================
 
-    $data = $response->json();
+    // GEMINI RESPONSE
 
-    $answer = null;
+$data = $response->json();
+
+if (!$response->successful()) {
+    return response()->json([
+        'success' => false,
+        'gemini_status' => $response->status(),
+        'gemini_error' => $response->json(),
+    ], $response->status());
+}
+
+$answer = null;
 
     if (isset($data['steps'])) {
 
