@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\AdminController;
 use App\Models\ChatMessage;
 use App\Models\Order;
 use Illuminate\Http\Request;
@@ -9,6 +11,18 @@ use Illuminate\Support\Facades\Route;
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
+
+// Authentication Routes
+Route::post('/register', [AuthController::class, 'register']);
+Route::post('/login', [AuthController::class, 'login']);
+
+Route::post('/logout', [AuthController::class, 'logout'])
+    ->middleware('auth:sanctum');
+
+    Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+    Route::get('/tickets', [AdminController::class, 'tickets']);
+    Route::put('/tickets/{id}', [AdminController::class, 'updateTicket']);
+});
 
 
 // =============================================================
@@ -66,10 +80,22 @@ Route::post('/gemini-test', function (Request $request) {
 // AI CUSTOMER SUPPORT CLASSIFICATION
 // =============================================================
 
-Route::post('/classify', function (Request $request) {
+Route::middleware('auth:sanctum')->post('/classify', function (Request $request) {
 
     $message = $request->input('message');
 
+     return response()->json([
+        'diagnostic' => 'AI_SUPPORT_BOT_CLASSIFY_ROUTE_V2',
+    ], 503);
+
+
+    // TEMPORARY SECURITY BLOCK: disable order lookups
+    if (preg_match('/\bORD-\d+\b/i', (string) $request->input('message', ''))) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Order lookup is temporarily disabled for security.',
+        ], 403);
+    }
 
     // =========================================================
     // GEMINI AI
@@ -232,38 +258,59 @@ $answer = null;
     $orderNumber = null;
 
 
+   
     // =========================================================
     // ORDER AUTOMATION
     // =========================================================
 
-    if (
-        $classification &&
-        ($classification['action'] ?? null) === 'CHECK_ORDER'
-    ) {
-
-        // Customer message se order number find karo
-        // Example: Mera order ORD-123 kahan hai?
-
-        if (
-            preg_match(
-                '/\bORD-\d+\b/i',
-                $message,
-                $matches
-            )
-        ) {
-
-            $orderNumber = strtoupper($matches[0]);
+if (
+    $classification &&
+    ($classification['action'] ?? null) === 'CHECK_ORDER'
+) {
+    return response()->json([
+        'success' => false,
+        'message' => 'Order lookup blocked for security testing.',
+    ], 403);
+}
 
 
-            // Database mein order search karo
 
-            $order = Order::where(
-                'order_number',
-                $orderNumber
-            )->first();
+if (
+    $classification &&
+    ($classification['action'] ?? null) === 'CHECK_ORDER'
+) {
+    if (preg_match('/\bORD-\d+\b/i', $message, $matches)) {
+        $orderNumber = strtoupper($matches[0]);
+
+       logger()->info('Order ownership check', [
+    'authenticated_user_id' => $request->user()
+        ? $request->user()->getAuthIdentifier()
+        : null,
+    'order_number' => $orderNumber,
+]);
+        $order = null;
+
+        if ($request->user()) {
+            $order = Order::where('order_number', $orderNumber)
+                ->where('user_id', $request->user()->id)
+                ->first();
         }
-    }
 
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found or unavailable.',
+            ], 404);
+        }
+
+        // Order milne ke baad aapka existing response code yahan rahega.
+    } else {
+        return response()->json([
+            'success' => false,
+            'message' => 'Please provide a valid order number, e.g. ORD-123.',
+        ], 422);
+    }
+}
 
     // =========================================================
     // CREATE SUPPORT TICKET
@@ -274,42 +321,36 @@ $answer = null;
         ($classification['action'] ?? null) === 'CREATE_TICKET'
     ) {
 
-        $ticket = \App\Models\SupportTicket::create([
+        if ($request->user()) {
 
-            'customer_message' => $message,
-
-            'category' => $classification['category'],
-
-            'priority' => $classification['priority'],
-
-            'action' => $classification['action'],
-
-            'ai_reason' => $classification['reason'],
-
-            'status' => 'OPEN',
-        ]);
-    }
+    $ticket = \App\Models\SupportTicket::create([
+        'user_id' => $request->user()->id,
+        'customer_message' => $message,
+        'category' => $classification['category'],
+        'priority' => $classification['priority'],
+        'action' => $classification['action'],
+        'ai_reason' => $classification['reason'],
+        'status' => 'OPEN',
+    ]);
+}
+}
 
 
     // =========================================================
     // SAVE CHAT HISTORY
     // =========================================================
 
-    if ($classification) {
-
-        ChatMessage::create([
-
-            'customer_message' => $message,
-
-            'ai_response' => $classification['answer'] ?? null,
-
-            'category' => $classification['category'] ?? null,
-
-            'priority' => $classification['priority'] ?? null,
-
-            'action' => $classification['action'] ?? null,
-        ]);
-    }
+   
+if ($classification && $request->user()) {
+    ChatMessage::create([
+        'user_id' => $request->user()->id,
+        'customer_message' => $message,
+        'ai_response' => $classification['answer'] ?? null,
+        'category' => $classification['category'] ?? null,
+        'priority' => $classification['priority'] ?? null,
+        'action' => $classification['action'] ?? null,
+    ]);
+}
 
 
     // =========================================================
@@ -422,5 +463,13 @@ Route::get('/chat-history', function () {
 
         'messages' => $messages,
 
+    ]);
+});
+
+
+Route::middleware('auth:sanctum')->get('/customer/profile', function (Request $request) {
+    return response()->json([
+        'success' => true,
+        'user' => $request->user(),
     ]);
 });
