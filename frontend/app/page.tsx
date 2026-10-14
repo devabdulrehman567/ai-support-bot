@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Classification = {
   category: string;
@@ -35,6 +36,19 @@ type Order = {
 
 export default function Home() {
   const [input, setInput] = useState("");
+
+  const router = useRouter();
+const [authChecking, setAuthChecking] = useState(true);
+
+useEffect(() => {
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    router.replace("/login");
+  } else {
+    setAuthChecking(false);
+  }
+}, [router]);
 
   const [classification, setClassification] =
     useState<Classification | null>(null);
@@ -130,6 +144,7 @@ const orderChats = chatHistory.filter(
 
     const data = await response.json();
 
+
     if (!response.ok || !data.success) {
       setError("Ticket status update nahi ho saka.");
       return;
@@ -199,8 +214,10 @@ useEffect(() => {
           method: "POST",
 
           headers: {
-            "Content-Type": "application/json",
-          },
+  "Content-Type": "application/json",
+  Accept: "application/json",
+  Authorization: `Bearer ${localStorage.getItem("token")}`,
+},
 
           body: JSON.stringify({
             message: input,
@@ -219,17 +236,19 @@ useEffect(() => {
 
       setTicket(data.ticket);
 
+     
       /*
       |--------------------------------------------------------------------------
       | Order
       |--------------------------------------------------------------------------
       */
 
-      if (
-        data.classification?.action === "CHECK_ORDER" &&
-        data.order
-      ) {
-        setOrder(data.order);
+      if (data.classification?.action === "CHECK_ORDER") {
+        if (data.success && data.order) {
+          setOrder(data.order);
+        } else {
+          setOrder(null);
+        }
       }
 
       /*
@@ -306,6 +325,9 @@ const getActionClass = (action: string) => {
 
   return "bg-green-100 text-green-700";
 };
+if (authChecking) {
+  return <div className="p-6">Checking login...</div>;
+}
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6 sm:px-6">
 
