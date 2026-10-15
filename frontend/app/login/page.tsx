@@ -19,7 +19,7 @@ export default function LoginPage() {
 
     try {
       const response = await fetch(
-        "https://ai-support-bot.wokku.app/api/login",
+        "https://ai-support-bot.wokku.app/api",
         {
           method: "POST",
           headers: {
@@ -36,11 +36,17 @@ export default function LoginPage() {
         setError(data.message || "Login failed. Check your email and password.");
         return;
       }
+localStorage.setItem("token", data.token);
+localStorage.setItem("user", JSON.stringify(data.user));
 
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
+const role = String(data.user?.role ?? "").toLowerCase();
 
-      router.push("/");
+if (role === "admin") {
+  router.push("/admin");
+} else {
+  router.push("/dashboard");
+}
+
     } catch {
       setError("Cannot connect to the Laravel backend.");
     } finally {

@@ -1,475 +1,434 @@
+
 <?php
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AdminController;
 use App\Models\ChatMessage;
 use App\Models\Order;
+use App\Models\SupportTicket;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Validation\Rule;
 
-Route::get('/user', function (Request $request) {
-    return $request->user();
-})->middleware('auth:sanctum');
-
-// Authentication Routes
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
-
-Route::post('/logout', [AuthController::class, 'logout'])
-    ->middleware('auth:sanctum');
-
-    Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
-    Route::get('/tickets', [AdminController::class, 'tickets']);
-    Route::put('/tickets/{id}', [AdminController::class, 'updateTicket']);
-});
-
-
-// =============================================================
-// TEST API
-// =============================================================
+/*
+|--------------------------------------------------------------------------
+| PUBLIC AND AUTHENTICATION ROUTES
+|--------------------------------------------------------------------------
+*/
 
 Route::get('/test', function () {
     return response()->json([
         'success' => true,
-        'message' => 'AI Support Bot API is working!'
+        'message' => 'AI Support Bot API is working!',
+    ]);
+});
+
+Route::post('/register', [AuthController::class, 'register']);
+Route::post('/login', [AuthController::class, 'login']);
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/user', function (Request $request) {
+        return response()->json($request->user());
+    });
+
+    Route::post('/logout', [AuthController::class, 'logout']);
+
+    Route::get('/customer/profile', function (Request $request) {
+        return response()->json([
+            'success' => true,
+            'user' => $request->user(),
+        ]);
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | CUSTOMER'S OWN ORDERS
+    |--------------------------------------------------------------------------
+    */
+ Route::middleware('auth:sanctum')->get('/customer/orders', function (Request $request) {
+    $orders = Order::where('user_id', $request->user()->id)
+        ->latest()
+        ->get([
+            'id',
+            'order_number',
+            'customer_name',
+            'product_name',
+            'amount',
+            'status',
+            'tracking_number',
+            'created_at',
+        ]);
+
+    return response()->json([
+        'success' => true,
+        'orders' => $orders,
     ]);
 });
 
 
-// =============================================================
-// GEMINI TEST
-// =============================================================
+    /*
+    |--------------------------------------------------------------------------
+    | GEMINI AI CUSTOMER SUPPORT CLASSIFICATION
+    |--------------------------------------------------------------------------
+    */
 
-Route::post('/gemini-test', function (Request $request) {
+    Route::post('/classify', function (Request $request) {
+        $validated = $request->validate([
+            'message' => ['required', 'string', 'max:5000'],
+        ]);
 
-    $response = Http::withHeaders([
-        'x-goog-api-key' => env('GEMINI_API_KEY'),
-        'Content-Type' => 'application/json',
-    ])->post(
-        'https://generativelanguage.googleapis.com/v1beta/interactions',
-        [
-            'model' => 'gemini-flash-lite-latest',
-            'input' => $request->input('message'),
-        ]
-    );
+        $message = trim($validated['message']);
+        $user = $request->user();
+        $apiKey = config('services.gemini.api_key')
+            ?: env('GEMINI_API_KEY');
 
-    $data = $response->json();
-
-    $answer = null;
-
-    if (isset($data['steps'])) {
-
-        foreach ($data['steps'] as $step) {
-
-            if (($step['type'] ?? null) === 'model_output') {
-
-                $answer = $step['content'][0]['text'] ?? null;
-
-                break;
-            }
+        if (!$apiKey) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gemini API key is not configured.',
+            ], 500);
         }
-    }
 
-    return response()->json([
-        'success' => $response->successful(),
-        'message' => $answer,
-    ], $response->status());
-});
-// =============================================================
-// AI CUSTOMER SUPPORT CLASSIFICATION
-// =============================================================
+        /*
+         * Call Gemini.
+         */
+        try {
+            $response = Http::timeout(45)
+                ->withHeaders([
+                    'x-goog-api-key' => $apiKey,
+                    'Content-Type' => 'application/json',
+                ])
+                ->post(
+                    'https://generativelanguage.googleapis.com/v1beta/interactions',
+                    [
+                        'model' => 'gemini-flash-lite-latest',
 
-Route::middleware('auth:sanctum')->post('/classify', function (Request $request) {
+                        'system_instruction' => 'You are an AI customer support automation assistant.
 
-    $message = $request->input('message');
-
-     return response()->json([
-        'diagnostic' => 'AI_SUPPORT_BOT_CLASSIFY_ROUTE_V2',
-    ], 503);
-
-
-    // TEMPORARY SECURITY BLOCK: disable order lookups
-    if (preg_match('/\bORD-\d+\b/i', (string) $request->input('message', ''))) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Order lookup is temporarily disabled for security.',
-        ], 403);
-    }
-
-    // =========================================================
-    // GEMINI AI
-    // =========================================================
-
-    $response = Http::withHeaders([
-        'x-goog-api-key' => env('GEMINI_API_KEY'),
-        'Content-Type' => 'application/json',
-    ])->post(
-        'https://generativelanguage.googleapis.com/v1beta/interactions',
-        
-        [
-            'model' => 'gemini-flash-lite-latest',
-
-            'system_instruction' => 'You are an AI customer support automation assistant.
-
-Classify every customer message into exactly one category:
+Classify each customer message into exactly one category:
 FAQ, ORDER, or COMPLAINT.
 
-Priority must be exactly:
-LOW, MEDIUM, or HIGH.
+Priority must be LOW, MEDIUM, or HIGH.
 
 Choose exactly one action:
 ANSWER_FAQ, CHECK_ORDER, or CREATE_TICKET.
 
-Rules:
+FAQ:
+Questions about policies, refunds, returns, delivery times,
+or payment methods. Action: ANSWER_FAQ.
+Provide a helpful customer-facing answer.
 
-1. FAQ:
-General questions about company policies, returns, refunds, delivery time, payment methods, etc.
-Action: ANSWER_FAQ.
-Priority: LOW unless the customer is clearly reporting a serious problem.
+ORDER:
+Questions about an existing order, order status, tracking,
+delivery, or order details. Action: CHECK_ORDER.
 
-2. ORDER:
-Questions about an existing order, order status, tracking, delivery, or order details.
-Action: CHECK_ORDER.
-
-3. COMPLAINT:
-Damaged products, wrong products, serious complaints, refund complaints, or customer problems.
-Action: CREATE_TICKET.
-Damaged products and serious complaints should normally have HIGH priority.
-
-If the category is FAQ, also provide a helpful customer-facing answer.
+COMPLAINT:
+Damaged products, wrong products, serious complaints,
+or customer problems. Action: CREATE_TICKET.
+Damaged products and serious complaints normally have HIGH priority.
 
 Return valid JSON only.',
 
-            'input' => [
-    [
-        'type' => 'text',
-        'text' => $message,
-    ],
-],
+                        'input' => $message,
 
-            'response_format' => [
-                'type' => 'text',
-                'mime_type' => 'application/json',
-
-                'schema' => [
-                    'type' => 'object',
-
-                    'properties' => [
-
-                        'category' => [
-                            'type' => 'string',
-                            'enum' => [
-                                'FAQ',
-                                'ORDER',
-                                'COMPLAINT'
+                        'response_format' => [
+                            'type' => 'text',
+                            'mime_type' => 'application/json',
+                            'schema' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'category' => [
+                                        'type' => 'string',
+                                        'enum' => [
+                                            'FAQ',
+                                            'ORDER',
+                                            'COMPLAINT',
+                                        ],
+                                    ],
+                                    'priority' => [
+                                        'type' => 'string',
+                                        'enum' => [
+                                            'LOW',
+                                            'MEDIUM',
+                                            'HIGH',
+                                        ],
+                                    ],
+                                    'action' => [
+                                        'type' => 'string',
+                                        'enum' => [
+                                            'ANSWER_FAQ',
+                                            'CHECK_ORDER',
+                                            'CREATE_TICKET',
+                                        ],
+                                    ],
+                                    'reason' => [
+                                        'type' => 'string',
+                                    ],
+                                    'answer' => [
+                                        'type' => 'string',
+                                    ],
+                                ],
+                                'required' => [
+                                    'category',
+                                    'priority',
+                                    'action',
+                                    'reason',
+                                    'answer',
+                                ],
                             ],
                         ],
+                    ]
+                );
+        } catch (\Throwable $e) {
+            report($e);
 
-                        'priority' => [
-                            'type' => 'string',
-                            'enum' => [
-                                'LOW',
-                                'MEDIUM',
-                                'HIGH'
-                            ],
-                        ],
-
-                        'action' => [
-                            'type' => 'string',
-                            'enum' => [
-                                'ANSWER_FAQ',
-                                'CHECK_ORDER',
-                                'CREATE_TICKET'
-                            ],
-                        ],
-
-                        'reason' => [
-                            'type' => 'string',
-                        ],
-
-                        'answer' => [
-                            'type' => 'string',
-                        ],
-                    ],
-
-                    'required' => [
-                        'category',
-                        'priority',
-                        'action',
-                        'reason',
-                        'answer'
-                    ],
-                ],
-            ],
-        ]
-    );
-
-
-    // =========================================================
-    // GEMINI RESPONSE
-    // =========================================================
-
-    // GEMINI RESPONSE
-
-$data = $response->json();
-
-if (!$response->successful()) {
-    return response()->json([
-        'success' => false,
-        'gemini_status' => $response->status(),
-        'gemini_error' => $response->json(),
-    ], $response->status());
-}
-
-$answer = null;
-
-    if (isset($data['steps'])) {
-
-        foreach ($data['steps'] as $step) {
-
-            if (($step['type'] ?? null) === 'model_output') {
-
-                $answer = $step['content'][0]['text'] ?? null;
-
-                break;
-            }
-        }
-    }
-
-
-    // =========================================================
-    // CONVERT AI JSON INTO PHP ARRAY
-    // =========================================================
-
-    $classification = $answer
-        ? json_decode($answer, true)
-        : null;
-
-
-    // =========================================================
-    // VARIABLES
-    // =========================================================
-
-    $ticket = null;
-
-    $order = null;
-
-    $orderNumber = null;
-
-
-   
-    // =========================================================
-    // ORDER AUTOMATION
-    // =========================================================
-
-if (
-    $classification &&
-    ($classification['action'] ?? null) === 'CHECK_ORDER'
-) {
-    return response()->json([
-        'success' => false,
-        'message' => 'Order lookup blocked for security testing.',
-    ], 403);
-}
-
-
-
-if (
-    $classification &&
-    ($classification['action'] ?? null) === 'CHECK_ORDER'
-) {
-    if (preg_match('/\bORD-\d+\b/i', $message, $matches)) {
-        $orderNumber = strtoupper($matches[0]);
-
-       logger()->info('Order ownership check', [
-    'authenticated_user_id' => $request->user()
-        ? $request->user()->getAuthIdentifier()
-        : null,
-    'order_number' => $orderNumber,
-]);
-        $order = null;
-
-        if ($request->user()) {
-            $order = Order::where('order_number', $orderNumber)
-                ->where('user_id', $request->user()->id)
-                ->first();
-        }
-
-        if (!$order) {
             return response()->json([
                 'success' => false,
-                'message' => 'Order not found or unavailable.',
+                'message' => 'Could not connect to the AI service.',
+            ], 502);
+        }
+
+        if (!$response->successful()) {
+            logger()->error('Gemini API request failed', [
+                'status' => $response->status(),
+                'response' => $response->json(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'The AI service returned an error.',
+                'gemini_status' => $response->status(),
+            ], 502);
+        }
+
+        /*
+         * Extract Gemini's text response.
+         */
+        $data = $response->json();
+        $answer = null;
+
+        foreach (($data['steps'] ?? []) as $step) {
+            if (($step['type'] ?? null) !== 'model_output') {
+                continue;
+            }
+
+            foreach (($step['content'] ?? []) as $content) {
+                if (
+                    ($content['type'] ?? null) === 'text'
+                    && isset($content['text'])
+                ) {
+                    $answer = $content['text'];
+                    break 2;
+                }
+            }
+        }
+
+        $classification = is_string($answer)
+            ? json_decode($answer, true)
+            : null;
+
+        $categories = ['FAQ', 'ORDER', 'COMPLAINT'];
+        $priorities = ['LOW', 'MEDIUM', 'HIGH'];
+        $actions = [
+            'ANSWER_FAQ',
+            'CHECK_ORDER',
+            'CREATE_TICKET',
+        ];
+
+        if (
+            !is_array($classification)
+            || !in_array($classification['category'] ?? null, $categories, true)
+            || !in_array($classification['priority'] ?? null, $priorities, true)
+            || !in_array($classification['action'] ?? null, $actions, true)
+            || !isset($classification['reason'])
+            || !isset($classification['answer'])
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The AI returned an invalid classification.',
+            ], 502);
+        }
+
+        /*
+         * Enforce the expected category/action combinations.
+         */
+        $expectedActions = [
+            'FAQ' => 'ANSWER_FAQ',
+            'ORDER' => 'CHECK_ORDER',
+            'COMPLAINT' => 'CREATE_TICKET',
+        ];
+
+        if (
+            $classification['action']
+            !== $expectedActions[$classification['category']]
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The AI returned an inconsistent classification.',
+            ], 502);
+        }
+
+        $ticket = null;
+        $order = null;
+        $orderNumber = null;
+
+        /*
+         * Order lookup is restricted to the authenticated customer.
+         */
+        if ($classification['action'] === 'CHECK_ORDER') {
+            if (!preg_match('/\bORD-\d+\b/i', $message, $matches)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Please provide a valid order number, e.g. ORD-123.',
+                ], 422);
+            }
+
+            $orderNumber = strtoupper($matches[0]);
+
+            $order = Order::where('order_number', $orderNumber)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found or unavailable.',
+                ], 404);
+            }
+        }
+
+        /*
+         * Create a ticket for the current customer only.
+         */
+        if ($classification['action'] === 'CREATE_TICKET') {
+            $ticket = SupportTicket::create([
+                'user_id' => $user->id,
+                'customer_message' => $message,
+                'category' => $classification['category'],
+                'priority' => $classification['priority'],
+                'action' => $classification['action'],
+                'ai_reason' => $classification['reason'],
+                'status' => 'OPEN',
+            ]);
+        }
+
+        /*
+         * Save chat history under the current customer.
+         */
+        ChatMessage::create([
+            'user_id' => $user->id,
+            'customer_message' => $message,
+            'ai_response' => $classification['answer'],
+            'category' => $classification['category'],
+            'priority' => $classification['priority'],
+            'action' => $classification['action'],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'classification' => $classification,
+            'order_number' => $orderNumber,
+            'order' => $order ? [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'customer_name' => $order->customer_name,
+                'product_name' => $order->product_name,
+                'amount' => $order->amount,
+                'status' => $order->status,
+                'tracking_number' => $order->tracking_number,
+                'created_at' => $order->created_at,
+                'updated_at' => $order->updated_at,
+            ] : null,
+            'ticket' => $ticket,
+        ]);
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | CUSTOMER'S OWN SUPPORT TICKETS
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('/tickets', function (Request $request) {
+        $tickets = SupportTicket::where('user_id', $request->user()->id)
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'tickets' => $tickets,
+        ]);
+    });
+
+    Route::put('/tickets/{id}', function (Request $request, $id) {
+        $validated = $request->validate([
+            'status' => [
+                'required',
+                Rule::in(['OPEN', 'IN PROGRESS', 'RESOLVED']),
+            ],
+        ]);
+
+        $ticket = SupportTicket::where('user_id', $request->user()->id)
+            ->find($id);
+
+        if (!$ticket) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Ticket not found or unavailable.',
             ], 404);
         }
 
-        // Order milne ke baad aapka existing response code yahan rahega.
-    } else {
-        return response()->json([
-            'success' => false,
-            'message' => 'Please provide a valid order number, e.g. ORD-123.',
-        ], 422);
-    }
-}
-
-    // =========================================================
-    // CREATE SUPPORT TICKET
-    // =========================================================
-
-    if (
-        $classification &&
-        ($classification['action'] ?? null) === 'CREATE_TICKET'
-    ) {
-
-        if ($request->user()) {
-
-    $ticket = \App\Models\SupportTicket::create([
-        'user_id' => $request->user()->id,
-        'customer_message' => $message,
-        'category' => $classification['category'],
-        'priority' => $classification['priority'],
-        'action' => $classification['action'],
-        'ai_reason' => $classification['reason'],
-        'status' => 'OPEN',
-    ]);
-}
-}
-
-
-    // =========================================================
-    // SAVE CHAT HISTORY
-    // =========================================================
-
-   
-if ($classification && $request->user()) {
-    ChatMessage::create([
-        'user_id' => $request->user()->id,
-        'customer_message' => $message,
-        'ai_response' => $classification['answer'] ?? null,
-        'category' => $classification['category'] ?? null,
-        'priority' => $classification['priority'] ?? null,
-        'action' => $classification['action'] ?? null,
-    ]);
-}
-
-
-    // =========================================================
-    // FINAL RESPONSE
-    // =========================================================
-
-    return response()->json([
-
-        'success' => $response->successful(),
-
-        'classification' => $classification,
-
-        'order_number' => $orderNumber,
-
-        'order' => $order,
-
-        'ticket' => $ticket,
-
-    ], $response->status());
-});
-
-
-// =============================================================
-// SUPPORT TICKETS
-// =============================================================
-
-Route::get('/tickets', function () {
-
-    return response()->json([
-
-        'success' => true,
-
-        'tickets' => \App\Models\SupportTicket::latest()->get(),
-
-    ]);
-});
-
-
-// =============================================================
-// UPDATE TICKET STATUS
-// =============================================================
-
-Route::put('/tickets/{id}', function (Request $request, $id) {
-
-    $ticket = \App\Models\SupportTicket::find($id);
-
-    if (!$ticket) {
+        $ticket->status = $validated['status'];
+        $ticket->save();
 
         return response()->json([
+            'success' => true,
+            'message' => 'Ticket status updated successfully.',
+            'ticket' => $ticket,
+        ]);
+    });
 
-            'success' => false,
+    /*
+    |--------------------------------------------------------------------------
+    | CUSTOMER'S OWN CHAT HISTORY
+    |--------------------------------------------------------------------------
+    */
 
-            'message' => 'Ticket not found.'
-
-        ], 404);
-    }
-
-
-    $status = $request->input('status');
-
-
-    if (!in_array($status, [
-
-        'OPEN',
-
-        'IN PROGRESS',
-
-        'RESOLVED'
-
-    ])) {
+    Route::get('/chat-history', function (Request $request) {
+        $messages = ChatMessage::where('user_id', $request->user()->id)
+            ->latest()
+            ->get();
 
         return response()->json([
-
-            'success' => false,
-
-            'message' => 'Invalid ticket status.'
-
-        ], 422);
-    }
-
-
-    $ticket->status = $status;
-
-    $ticket->save();
-
-
-    return response()->json([
-
-        'success' => true,
-
-        'message' => 'Ticket status updated successfully.',
-
-        'ticket' => $ticket,
-
-    ]);
+            'success' => true,
+            'messages' => $messages,
+        ]);
+    });
 });
 
-
-// =============================================================
-// CHAT HISTORY
-// =============================================================
-
-Route::get('/chat-history', function () {
-
-    $messages = ChatMessage::latest()->get();
-
-    return response()->json([
-
-        'success' => true,
-
-        'messages' => $messages,
-
-    ]);
-});
+/*
+|--------------------------------------------------------------------------
+| ADMIN ROUTES
+|--------------------------------------------------------------------------
+*/
 
 
-Route::middleware('auth:sanctum')->get('/customer/profile', function (Request $request) {
-    return response()->json([
-        'success' => true,
-        'user' => $request->user(),
-    ]);
-});
+Route::middleware(['auth:sanctum', 'admin'])
+    ->prefix('admin')
+    ->group(function () {
+        Route::get('/tickets', [AdminController::class, 'tickets']);
+        Route::put('/tickets/{id}', [AdminController::class, 'updateTicket']);
+
+        // Admin can view all customer orders
+        Route::get('/orders', function () {
+            $orders = Order::with('user:id,name,email')
+                ->latest()
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'orders' => $orders,
+            ]);
+        });
+    });
