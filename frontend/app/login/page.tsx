@@ -18,19 +18,20 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await fetch(
-        "https://ai-support-bot.wokku.app/api",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({ email, password }),
-        }
-      );
+      
+const response = await fetch(
+  "https://ai-support-bot.wokku.app/api/login",
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ email, password }),
+  }
+);
 
-      const data = await response.json();
+    const data = await response.json();
 
       if (!response.ok || !data.success || !data.token) {
         setError(data.message || "Login failed. Check your email and password.");
