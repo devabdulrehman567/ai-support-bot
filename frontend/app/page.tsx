@@ -228,9 +228,9 @@ useEffect(() => {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        setError("AI se response nahi mila.");
-        return;
-      }
+  setError(data.message || "AI se response nahi mila.");
+  return;
+}
 
       setClassification(data.classification);
 
