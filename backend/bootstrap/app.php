@@ -11,7 +11,12 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
-    ->withMiddleware(function (Middleware $middleware): void {
+    
+->withMiddleware(function (Middleware $middleware): void {
+    $middleware->prepend(
+        \Illuminate\Http\Middleware\HandleCors::class
+    );
+
     $middleware->alias([
         'admin' => \App\Http\Middleware\AdminMiddleware::class,
     ]);
@@ -26,6 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
         return '/login';
     });
 })
+
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (\Illuminate\Http\Request $request, \Throwable $e) =>
