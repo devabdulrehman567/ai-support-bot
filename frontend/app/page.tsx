@@ -20,7 +20,7 @@ type Order = {
   created_at: string;
 };
 
-const API_URL = "https://ai-support-bot.wokku.app/api";
+const API_URL = "/backend-api";
 
 const menuItems = [
   "Overview",

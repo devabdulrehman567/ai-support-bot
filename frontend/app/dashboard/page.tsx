@@ -34,7 +34,7 @@ type SupportTicket = {
   category?: string | null;
 };
 
-const API_URL = "https://ai-support-bot.wokku.app/api";
+const API_URL = "/backend-api";
 
 const menuItems = [
   "Overview",

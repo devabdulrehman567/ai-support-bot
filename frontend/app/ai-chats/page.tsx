@@ -119,7 +119,7 @@ const loadTickets = async () => {
     }
 
     const response = await fetch(
-      "https://ai-support-bot.wokku.app/api/tickets",
+      "/backend-api/tickets",
       {
         headers: {
           Accept: "application/json",
@@ -156,7 +156,7 @@ const updateTicketStatus = async (
     }
 
     const response = await fetch(
-      `https://ai-support-bot.wokku.app/api/tickets/${ticketId}`,
+      `/backend-api/tickets/${ticketId}`,
       {
         method: "PUT",
         headers: {
@@ -192,7 +192,7 @@ const loadChatHistory = async () => {
     }
 
     const response = await fetch(
-      "https://ai-support-bot.wokku.app/api/chat-history",
+      "/backend-api/chat-history",
       {
         headers: {
           Accept: "application/json",
@@ -260,7 +260,7 @@ const sendMessage = async () => {
 
   try {
     const response = await fetch(
-      "https://ai-support-bot.wokku.app/api/classify",
+      "/backend-api/classify",
       {
         method: "POST",
         headers: {

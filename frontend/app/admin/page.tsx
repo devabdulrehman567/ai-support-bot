@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const API_URL = "https://ai-support-bot.wokku.app/api";
+const API_URL = "/backend-api";
 
 type Ticket = {
   id: number;
