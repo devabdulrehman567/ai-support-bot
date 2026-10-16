@@ -17,7 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \Illuminate\Http\Middleware\HandleCors::class
     );
 
-    $middleware->alias([
+$middleware->alias([
         'admin' => \App\Http\Middleware\AdminMiddleware::class,
     ]);
 
