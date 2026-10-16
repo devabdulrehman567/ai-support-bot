@@ -20,7 +20,7 @@ export default function LoginPage() {
     try {
       
 const response = await fetch(
-  "https://ai-support-bot.wokku.app/api/login",
+  "/backend-api/login",
   {
     method: "POST",
     headers: {
